@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Leeds Sustainable Map</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <!-- Leaflet CSS -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    #map {
+      height: 100%;
+      width: 100%;
+    }
+
+    .sidebar {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      z-index: 1000;
+      background: rgba(255, 255, 255, 0.95);
+      padding: 12px 14px;
+      border-radius: 12px;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+      max-width: 280px;
+      font-size: 13px;
+    }
+
+    .sidebar h1 {
+      font-size: 16px;
+      margin: 0 0 4px;
+    }
+
+    .sidebar small {
+      display: block;
+      margin-bottom: 8px;
+      color: #555;
+    }
+
+    .category-list {
+      max-height: 260px;
+      overflow-y: auto;
+      margin-bottom: 8px;
+    }
+
+    .category-item {
+      display: flex;
+      align-items: center;
+      margin-bottom: 4px;
+      gap: 6px;
+    }
+
+    .category-color {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      flex-shrink: 0;
+    }
+
+    .sidebar-footer {
+      font-size: 11px;
+      color: #777;
+      border-top: 1px solid #eee;
+      padding-top: 6px;
+    }
+
+    .badge-pill {
+      display: inline-block;
+      background: #eef3ff;
+      border-radius: 999px;
+      padding: 2px 8px;
+      margin: 2px 2px 0 0;
+      font-size: 11px;
+      color: #334;
+      border: 1px solid #d5defa;
+    }
+
+    /* 右側店家列表 */
+    .right-panel {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      z-index: 1000;
+      background: rgba(255, 255, 255, 0.95);
+      padding: 10px 12px;
+      border-radius: 12px;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+      width: 280px;
+      max-height: calc(100% - 24px);
+      display: flex;
+      flex-direction: column;
+      font-size: 13px;
+    }
+
+    .right-panel h2 {
+      font-size: 14px;
+      margin: 0 0 4px;
+    }
+
+    .right-panel small {
+      color: #555;
+      margin-bottom: 6px;
+    }
+
+    .place-list {
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+
+    .place-item {
+      padding: 6px 6px;
+      border-radius: 8px;
+      margin-bottom: 4px;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
+    }
+
+    .place-item:hover {
+      background: #f0f4ff;
+      transform: translateY(-1px);
+    }
+
+    .place-name {
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .place-meta {
+      font-size: 11px;
+      color: #666;
+    }
+
+    .place-stars {
+      font-size: 11px;
+      color: #f39c12;
+    }
+
+    @media (max-width: 900px) {
+      .sidebar {
+        max-width: 220px;
+      }
+      .right-panel {
+        width: 220px;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .sidebar {
+        max-width: calc(100% - 24px);
+        right: 12px;
+      }
+      .right-panel {
+        bottom: 12px;
+        top: auto;
+        width: calc(100% - 24px);
+        max-height: 40%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <!-- 左上角篩選面板 -->
+  <div class="sidebar">
+    <h1>Leeds Sustainable Map 🌍</h1>
+    <small>點選分類切換顯示 / 隱藏店家</small>
+
+    <div class="category-list" id="category-list"></div>
+
+    <div class="sidebar-footer">
+      💡 點選地圖上的標記可查看：<br />
+      店家名稱、永續星級、Badges、簡短說明。
+    </div>
+  </div>
+
+  <!-- 右側店家列表 -->
+  <div class="right-panel">
+    <h2>永續店家列表 🗺️</h2>
+    <small>點店名，地圖會移動並打開詳細資訊</small>
+    <div class="place-list" id="place-list"></div>
+  </div>
+
+  <!-- Leaflet JS -->
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+
+  <script>
+    // 8 大分類的樣式與顏色
+    const categoryStyles = {
+      "Zero Waste / Refill": {
+        color: "#2ecc71",
+        emoji: "♻",
+        label: "Zero Waste / Refill"
+      },
+      "Vegan / Plant-based": {
+        color: "#27ae60",
+        emoji: "🌿",
+        label: "Vegan / Plant-based"
+      },
+      "Vintage / Second-hand": {
+        color: "#9b59b6",
+        emoji: "👚",
+        label: "Vintage / Second-hand"
+      },
+      "Local & Ethical Food": {
+        color: "#e67e22",
+        emoji: "🌱",
+        label: "Local & Ethical Food"
+      },
+      "Social Enterprise": {
+        color: "#16a085",
+        emoji: "💚",
+        label: "Social Enterprise"
+      },
+      "Repair / Reuse": {
+        color: "#3498db",
+        emoji: "🔧",
+        label: "Repair / Reuse"
+      },
+      "BYO Cup / Low-waste": {
+        color: "#f1c40f",
+        emoji: "☕",
+        label: "BYO Cup / Low-waste"
+      },
+      "Urban Farming / Community Garden": {
+        color: "#95a5a6",
+        emoji: "🏡",
+        label: "Urban Farming / Community"
+      }
+    };
+
+    // 永續店家資料（座標為大致區域，可之後微調）
+    const places = [
+      // 1) Zero Waste / Refill
+      {
+        name: "Jar Refill Shop",
+        category: "Zero Waste / Refill",
+        coords: [53.819, -1.583], // Headingley approx
+        level: 5,
+        badges: ["Refill", "Zero waste", "Local sourcing"],
+        description:
+          "全里茲最知名的 refill shop，提供穀物、清潔用品與日用品補充。"
+      },
+      {
+        name: "Waste Not",
+        category: "Zero Waste / Refill",
+        coords: [53.812, -1.568], // Hyde Park approx
+        level: 4,
+        badges: ["Reuse", "Second-hand", "Social enterprise", "Waste reduction"],
+        description:
+          "志工運作的減廢空間，提供二手物資與低價永續產品。"
+      },
+      {
+        name: "The Good Fillers",
+        category: "Zero Waste / Refill",
+        coords: [53.796, -1.540], // Corn Exchange / city centre approx
+        level: 3,
+        badges: ["Refill", "Eco products"],
+        description:
+          "提供環保家庭用品、肥皂、清潔劑補充的 refill 點。"
+      },
+
+      // 2) Vegan / Plant-based
+      {
+        name: "Humpit Hummus",
+        category: "Vegan / Plant-based",
+        coords: [53.796, -1.540], // Corn Exchange / Call Lane approx
+        level: 4,
+        badges: ["Vegan", "Low-carbon food"],
+        description:
+          "純素鷹嘴豆主題餐廳，是學生很愛的平價 vegan 選擇。"
+      },
+      {
+        name: "Fat Annie’s (Kirkgate Market)",
+        category: "Vegan / Plant-based",
+        coords: [53.796, -1.537], // Kirkgate Market approx
+        level: 4,
+        badges: ["Plant-based", "Low-carbon food", "Transformation"],
+        description:
+          "從傳統熱狗攤轉型為 100% plant-based 的代表案例。"
+      },
+      {
+        name: "Cantina Vegan",
+        category: "Vegan / Plant-based",
+        coords: [53.796, -1.540], // Call Lane area approx
+        level: 4,
+        badges: ["Vegan", "Local sourcing"],
+        description:
+          "創新純素餐點，並與本地供應商合作。"
+      },
+      {
+        name: "Eat Your Greens",
+        category: "Vegan / Plant-based",
+        coords: [53.797, -1.535], // New York St approx
+        level: 4,
+        badges: ["Local sourcing", "Seasonal", "Low-carbon food"],
+        description: "farm-to-table 餐廳，以在地與當季食材為主。"
+      },
+
+      // 3) Vintage / Second-hand
+      {
+        name: "Blue Rinse Vintage",
+        category: "Vintage / Second-hand",
+        coords: [53.797, -1.540], // Call Lane approx
+        level: 5,
+        badges: ["Second-hand", "Circular fashion", "Reuse"],
+        description: "里茲最知名的 vintage 店，強調服飾再利用。"
+      },
+      {
+        name: "Cow Vintage",
+        category: "Vintage / Second-hand",
+        coords: [53.800, -1.540], // New Briggate approx
+        level: 4,
+        badges: ["Second-hand", "Circular fashion"],
+        description: "英國連鎖二手潮流服飾品牌。"
+      },
+      {
+        name: "Makemake",
+        category: "Vintage / Second-hand",
+        coords: [53.796, -1.540], // Corn Exchange approx
+        level: 4,
+        badges: ["Second-hand", "Ethical fashion"],
+        description: "小型設計師與二手精品混合選品店。"
+      },
+      {
+        name: "Leeds Community Clothes Exchange",
+        category: "Vintage / Second-hand",
+        coords: [53.812, -1.568], // Hyde Park approx
+        level: 5,
+        badges: ["Reuse", "Community", "Second-hand"],
+        description: "以衣物交換為主的活動，強烈推廣循環消費。"
+      },
+
+      // 4) Repair / Reuse
+      {
+        name: "Leeds Repair Café",
+        category: "Repair / Reuse",
+        coords: [53.819, -1.583], // Headingley (pop-up)
+        level: 5,
+        badges: ["Repair", "Community", "Waste reduction"],
+        description: "志工幫忙修理電器、家具與衣物的社區行動。"
+      },
+      {
+        name: "Seagulls Paint",
+        category: "Repair / Reuse",
+        coords: [53.815, -1.604], // Kirkstall approx
+        level: 5,
+        badges: ["Reuse", "Social enterprise", "Art sustainability", "Education"],
+        description: "回收油漆再製與藝術教育工作坊的社會企業。"
+      },
+      {
+        name: "Revive Leeds – Reuse Shop",
+        category: "Repair / Reuse",
+        coords: [53.812, -1.461], // Seacroft approx
+        level: 4,
+        badges: ["Reuse", "Second-hand", "Community"],
+        description: "家具、家用品再販售，與慈善合作的 reuse shop。"
+      },
+
+      // 5) Local & Ethical Food
+      {
+        name: "Out of This World",
+        category: "Local & Ethical Food",
+        coords: [53.797, -1.544], // New Market St approx
+        level: 5,
+        badges: ["Local sourcing", "Ethical sourcing", "Fair trade", "Organic"],
+        description: "本地、有機與公平貿易食品與生活用品雜貨店。"
+      },
+      {
+        name: "Kirkgate Market Local Farmers Stalls",
+        category: "Local & Ethical Food",
+        coords: [53.796, -1.537],
+        level: 4,
+        badges: ["Local farmers", "Low food miles", "Seasonal"],
+        description: "支持在地農場、減少食物里程的小農攤位。"
+      },
+      {
+        name: "North Star Coffee Roasters (Roastery & Café)",
+        category: "Local & Ethical Food",
+        coords: [53.791, -1.532], // Leeds Dock approx
+        level: 4,
+        badges: ["Ethical sourcing", "Local roasting", "BYO cup"],
+        description: "透明道德採購與在地烘焙的特色咖啡品牌。"
+      },
+
+      // 6) Social Enterprise
+      {
+        name: "The Green Yard",
+        category: "Social Enterprise",
+        coords: [53.830, -1.568], // Meanwood approx
+        level: 5,
+        badges: ["Urban green", "Community", "Education", "Social enterprise"],
+        description: "社區園藝、共享花園與永續教育空間。"
+      },
+      {
+        name: "The Real Junk Food Project",
+        category: "Social Enterprise",
+        coords: [53.797, -1.543], // use city centre approx (多據點)
+        level: 5,
+        badges: [
+          "Food waste reduction",
+          "Social equity",
+          "Pay as you feel",
+          "Community"
+        ],
+        description:
+          "利用剩食供餐的「Pay as You Feel」模式社會企業（多據點）。"
+      },
+      {
+        name: "Rainbow Junktion",
+        category: "Social Enterprise",
+        coords: [53.812, -1.568], // Hyde Park approx
+        level: 4,
+        badges: ["Food waste reduction", "Social enterprise", "Community"],
+        description: "剩食食堂與社區行動空間。"
+      },
+
+      // 7) BYO Cup / Low-waste Friendly
+      {
+        name: "Laynes Espresso",
+        category: "BYO Cup / Low-waste",
+        coords: [53.795, -1.548], // near station
+        level: 4,
+        badges: ["BYO cup", "Compostable packaging", "Local sourcing"],
+        description: "市中心獨立咖啡館，提供自帶杯折扣與低廢棄外帶杯。"
+      },
+      {
+        name: "North Star Coffee Roasters (Café)",
+        category: "BYO Cup / Low-waste",
+        coords: [53.791, -1.532], // Leeds Dock
+        level: 4,
+        badges: ["BYO cup", "Ethical sourcing", "Local roasting"],
+        description: "結合道德採購與本地烘焙的自帶杯友善咖啡館。"
+      },
+      {
+        name: "Opposite Café",
+        category: "BYO Cup / Low-waste",
+        coords: [53.819, -1.583], // Headingley approx
+        level: 4,
+        badges: ["BYO cup", "Local sourcing"],
+        description: "學生與在地居民常去的咖啡館，鼓勵自帶杯。"
+      },
+      {
+        name: "House of Koko",
+        category: "BYO Cup / Low-waste",
+        coords: [53.827, -1.537], // Chapel Allerton approx
+        level: 4,
+        badges: ["BYO cup", "Local sourcing", "Community"],
+        description: "社區型咖啡館，友善自帶杯並支持本地供應商。"
+      },
+
+      // 8) Urban Farming & Community Gardens
+      {
+        name: "Hyde Park Source",
+        category: "Urban Farming / Community Garden",
+        coords: [53.812, -1.568], // Hyde Park approx
+        level: 5,
+        badges: ["Urban farming", "Community", "Education", "Green space"],
+        description: "里茲最強的社區環境與園藝教育組織之一。"
+      },
+      {
+        name: "Incredible Edible Leeds",
+        category: "Urban Farming / Community Garden",
+        coords: [53.797, -1.543], // various sites, use centre
+        level: 4,
+        badges: ["Urban food", "Community", "Free produce"],
+        description: "免費蔬菜箱與社區農耕計畫，據點遍布 Leeds。"
+      }
+    ];
+
+    // 初始化地圖
+    const map = L.map("map").setView([53.8, -1.55], 12);
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: "&copy; OpenStreetMap contributors"
+    }).addTo(map);
+
+    // 為每個分類建立 LayerGroup
+    const categoryLayers = {};
+    Object.keys(categoryStyles).forEach((cat) => {
+      categoryLayers[cat] = L.layerGroup().addTo(map);
+    });
+
+    // 儲存 marker，方便右側列表點選時使用
+    const markers = [];
+
+    // 將數字星級轉成 ⭐ 字串
+    function starString(level) {
+      return "⭐".repeat(level);
+    }
+
+    // 建立 Marker 並加入各自的 Layer
+    places.forEach((place) => {
+      const style = categoryStyles[place.category];
+
+      const marker = L.circleMarker(place.coords, {
+        radius: 9,
+        color: style.color,
+        weight: 2,
+        fillColor: style.color,
+        fillOpacity: 0.7
+      });
+
+      const badgeHtml =
+        place.badges && place.badges.length
+          ? `<div>${place.badges
+              .map((b) => `<span class="badge-pill">${b}</span>`)
+              .join("")}</div>`
+          : "";
+
+      const popupHtml = `
+        <div>
+          <strong>${style.emoji} ${place.name}</strong><br/>
+          <small>${place.category}</small><br/>
+          <div class="place-stars">永續強度：${starString(place.level)} (${place.level}/5)</div>
+          ${badgeHtml}
+          <p style="margin-top:4px;margin-bottom:0;">${place.description}</p>
+        </div>
+      `;
+
+      marker.bindPopup(popupHtml);
+      marker.addTo(categoryLayers[place.category]);
+      markers.push(marker);
+    });
+
+    // 建立側邊欄中的分類勾選框
+    const categoryListEl = document.getElementById("category-list");
+
+    Object.entries(categoryStyles).forEach(([catKey, style]) => {
+      const id = `cat-${catKey.replace(/\W+/g, "-")}`;
+
+      const wrapper = document.createElement("div");
+      wrapper.className = "category-item";
+
+      const colorDot = document.createElement("span");
+      colorDot.className = "category-color";
+      colorDot.style.backgroundColor = style.color;
+
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.id = id;
+      checkbox.checked = true;
+      checkbox.dataset.category = catKey;
+      checkbox.className = "category-filter";
+
+      const label = document.createElement("label");
+      label.setAttribute("for", id);
+      label.textContent = `${style.emoji} ${style.label}`;
+
+      wrapper.appendChild(checkbox);
+      wrapper.appendChild(colorDot);
+      wrapper.appendChild(label);
+
+      categoryListEl.appendChild(wrapper);
+    });
+
+    // 勾選分類時，顯示 / 隱藏該 LayerGroup
+    function updateCategoryVisibility() {
+      document.querySelectorAll(".category-filter").forEach((cb) => {
+        const category = cb.dataset.category;
+        const layer = categoryLayers[category];
+        if (!layer) return;
+
+        if (cb.checked) {
+          if (!map.hasLayer(layer)) {
+            layer.addTo(map);
+          }
+        } else {
+          if (map.hasLayer(layer)) {
+            map.removeLayer(layer);
+          }
+        }
+      });
+    }
+
+    document
+      .querySelectorAll(".category-filter")
+      .forEach((cb) => cb.addEventListener("change", updateCategoryVisibility));
+
+    // 右側店家列表：點了之後地圖移動 + 開 popup
+    const placeListEl = document.getElementById("place-list");
+
+    places.forEach((place, index) => {
+      const style = categoryStyles[place.category];
+
+      const item = document.createElement("div");
+      item.className = "place-item";
+
+      const nameEl = document.createElement("div");
+      nameEl.className = "place-name";
+      nameEl.textContent = `${style.emoji} ${place.name}`;
+
+      const metaEl = document.createElement("div");
+      metaEl.className = "place-meta";
+      metaEl.textContent = `${place.category}`;
+
+      const starsEl = document.createElement("div");
+      starsEl.className = "place-stars";
+      starsEl.textContent = starString(place.level);
+
+      item.appendChild(nameEl);
+      item.appendChild(metaEl);
+      item.appendChild(starsEl);
+
+      // 點選時：移動到該店家並開啟 popup
+      item.addEventListener("click", () => {
+        const marker = markers[index];
+        if (!marker) return;
+        const coords = place.coords;
+
+        map.setView(coords, 15, { animate: true });
+        marker.openPopup();
+      });
+
+      placeListEl.appendChild(item);
+    });
+  </script>
+</body>
+</html>
